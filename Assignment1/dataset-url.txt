@@ -1,1 +1,3 @@
 https://www.cs.toronto.edu/~kriz/cifar.html
+
+Extract into a folder called Datasets, should result in Datasets/cifar-10-batches-mat/.
