@@ -1,15 +1,21 @@
 function Assignment1()
     % Params
-    n_batch = 100;
+    n_batch = 64;
     eta = 0.001;
+    eta_min = 0.0005;
+    decay = 0.99;
     n_epochs = 40;
-    lambda = 0;
+    lambda = 0.005;
     rng(400);
 
     % Load data
     [X_train, Y_train, y_train] = LoadBatch("data_batch_1.mat");
     [X_val, Y_val, y_val] = LoadBatch("data_batch_2.mat");
     [X_test, Y_test, y_test] = LoadBatch("test_batch.mat");
+
+    %[X_train, Y_train, y_train] = AddRotations(X_train, Y_train, y_train);
+    [X_train, Y_train, y_train] = AddFlips(X_train, Y_train, y_train);
+    %X_train = AddRandomNoise(X_train, 0.01);
     
     % Preprocess data
     mean_X = mean(X_train, 2);  % d x 1
@@ -25,14 +31,15 @@ function Assignment1()
     W = 0.01 * randn(K, d); % Gaussian random values for W
     b = 0.01 * randn(K, 1);  % Gaussian random values for b
 
-    GDparams = [n_batch, eta, n_epochs];
-    [Wstar, bstar, costs_train, costs_eval] = MiniBatchGD(X_train, Y_train, X_val, Y_val, GDparams, W, b, lambda);
+    GDparams = [n_batch, eta, n_epochs, eta_min, decay];
+    [Wstar, bstar, costs_train, costs_eval] = MiniBatchGD(X_train, Y_train, y_train, X_val, y_val, GDparams, W, b, lambda);
     accuracy = ComputeAccuracy(X_test, y_test, Wstar, bstar);
     disp("Accuracy: " + accuracy);
 
-    p = plot(1:n_epochs, costs_train, 1:n_epochs, costs_eval);
+    plot(1:n_epochs, costs_train, 1:n_epochs, costs_eval);
     legend("Training loss", "Valuation loss");
 
+    return;
     % Visualize the learn weights
     s_im = {};
     for i=1:10
@@ -43,11 +50,6 @@ function Assignment1()
     
     montage(s_im, 'Size', [1,10]);
 end 
-
-function ret = NormalizeData(X, mean, std)
-    ret = X - repmat(mean, [1, size(X, 2)]);
-    ret = ret ./ repmat(std, [1, size(ret, 2)]);
-end
 
 function [X, Y, y] = LoadBatch(filename)
     % X contains the image pixel data of size d x n of type double
@@ -64,6 +66,66 @@ function [X, Y, y] = LoadBatch(filename)
     Y = Y';
 end
 
+function [X_noise] = AddRandomNoise(X, p)
+    inds = rand(size(X,1), 1);
+    inds = inds < p;
+    X_noise = X;
+    X_noise(:,inds) = X_noise(:,inds) .* rand(size(X,1), 1);
+end
+
+function [X_rot, Y_rot, y_rot] = AddRotations(X, Y, y)
+    n = size(X,2);
+    X_rot = zeros(size(X,1), n * 4);
+    Y_rot = zeros(size(Y,1), n * 4);
+    y_rot = zeros(n * 4, 1);
+    for i=1:n
+        im = X(:,i);
+        im = reshape(im', 32, 32, 3);
+        im = rot90(im);
+        X_rot(:,i) = X(:,i);
+        X_rot(:,i+n) = reshape(im, 32*32*3, 1);
+        im = rot90(im);
+        X_rot(:,i+2*n) = reshape(im, 32*32*3, 1);
+        im = rot90(im);
+        X_rot(:,i+3*n) = reshape(im, 32*32*3, 1);
+
+        Y_rot(:,i) = Y(:,i);
+        Y_rot(:,i+n) = Y(:,i);
+        Y_rot(:,i+2*n) = Y(:,i);
+        Y_rot(:,i+3*n) = Y(:,i);
+
+        y_rot(i) = y(i);
+        y_rot(i+n) = y(i);
+        y_rot(i+2*n) = y(i);
+        y_rot(i+3*n) = y(i);
+    end
+end
+
+function [X_flip, Y_flip, y_flip] = AddFlips(X, Y, y)
+    n = size(X,2);
+    X_flip = zeros(size(X,1), n * 2);
+    Y_flip = zeros(size(Y,1), n * 2);
+    y_flip = zeros(n * 2, 1);
+    for i=1:n
+        im = X(:,i);
+        im = reshape(im', 32, 32, 3);
+        im = flip(im);
+        X_flip(:,i) = X(:,i);
+        X_flip(:,i+n) = reshape(im, 32*32*3, 1);
+
+        Y_flip(:,i) = Y(:,i);
+        Y_flip(:,i+n) = Y(:,i);
+
+        y_flip(i) = y(i);
+        y_flip(i+n) = y(i);
+    end
+end
+
+function ret = NormalizeData(X, mean, std)
+    ret = X - repmat(mean, [1, size(X, 2)]);
+    ret = ret ./ repmat(std, [1, size(ret, 2)]);
+end
+
 function P = EvaluateClassifier(X, W, b)
     % X = d x n
     % W = K x d
@@ -73,14 +135,17 @@ function P = EvaluateClassifier(X, W, b)
     P = softmax(s);
 end
 
-function J = ComputeCost(X, Y, W, b, lambda)
+function J = ComputeCost(X, y, W, b, lambda)
     % X = d x n
     % W = K x d
     % b = K x 1
     % Y = K x n
     % J = scalar
-
-    loss = -1 / size(X,2) * trace(Y' * log(EvaluateClassifier(X, W, b)));
+    
+    P = EvaluateClassifier(X, W, b);
+    n = size(X,2);
+    idx = sub2ind(size(P), y', 1:n);
+    loss = -1 / n * sum(log(P(idx)));
     regularizationTerm = lambda * sum(W.^2, 'all');
 
     J = loss + regularizationTerm;
@@ -117,14 +182,13 @@ function [Wstar, bstar] = TrainOneEpoch(X, Y, GDparams, W, b, lambda)
     eta = GDparams(2);
     n_batch = GDparams(1);
     n = size(X,2);
-    perm = randperm(size(X,2));
-    X = X(:, perm);
-    Y = Y(:, perm);
+    perm = randperm(n);
     for j=1:n/n_batch
         j_start = (j-1)*n_batch + 1;
         j_end = j*n_batch;
-        Xbatch = X(:, j_start:j_end);
-        Ybatch = Y(:, j_start:j_end);
+        inds = perm(j_start:j_end);
+        Xbatch = X(:, inds);
+        Ybatch = Y(:, inds);
 
         P = EvaluateClassifier(Xbatch, W, b);
         [grad_W, grad_b] = ComputeGradients(Xbatch, Ybatch, P, W, lambda);
@@ -136,20 +200,22 @@ function [Wstar, bstar] = TrainOneEpoch(X, Y, GDparams, W, b, lambda)
     bstar = b;
 end
 
-function [Wstar, bstar, costs_train, costs_eval] = MiniBatchGD(X_train, Y_train, X_eval, Y_eval, GDparams, W, b, lambda)
+function [Wstar, bstar, costs_train, costs_eval] = MiniBatchGD(X_train, Y_train, y_train, X_val, y_val, GDparams, W, b, lambda)
     % X = d x n
     % W = K x d
     % b = K x 1
     % lambda = scalar
-    % GDparams = [n_batch, eta, n_epochs]
+    % GDparams = [n_batch, eta, n_epochs, eta_min, decay]
     n_epochs = GDparams(3);
     costs_train = zeros(n_epochs, 1);
     costs_eval = zeros(n_epochs, 1);
     for i=1:n_epochs
         [W, b] = TrainOneEpoch(X_train, Y_train, GDparams, W, b, lambda);
-        costs_train(i) = ComputeCost(X_train, Y_train, W, b, lambda);
-        costs_eval(i) = ComputeCost(X_eval, Y_eval, W, b, lambda);
-        disp("Train cost at epoch: " + i + ": " + costs_train(i));
+        costs_train(i) = ComputeCost(X_train, y_train, W, b, lambda);
+        costs_eval(i) = ComputeCost(X_val, y_val, W, b, lambda);
+        disp("Train cost at epoch: " + i + ": " + costs_train(i) + " Eval cost: " + costs_eval(i) + "; eta: " + GDparams(2));
+        GDparams(2) = GDparams(2) * GDparams(5);% lr
+        GDparams(2) = max(GDparams(4), GDparams(2));
     end 
     
     Wstar = W;
