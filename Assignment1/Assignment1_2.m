@@ -2,7 +2,7 @@ function Assignment1_2()
     % Params
     n_batch = 100;
     eta = 0.01;
-    n_epochs = 80;
+    n_epochs = 10;
     lambda = 0.01;
     rng(400);
 
@@ -35,7 +35,7 @@ function Assignment1_2()
     scr_siz = get(0,'ScreenSize');
     f = figure;
     f.Position = floor([150 150 scr_siz(3)*0.8 scr_siz(4)*0.8]);
-    T = tiledlayout(f, 1,2);
+    T = tiledlayout(f, 2,2);
     title(T, "Lambda: " + lambda + ", Epochs: " + n_epochs + ", Batch Size: " + n_batch + ", \eta: " + eta);
 
     % Visualize the learn weights
@@ -57,6 +57,29 @@ function Assignment1_2()
     xlabel("Epoch")
     ylabel("Loss")
     fontsize(T,24,"points")
+
+    % Histograms
+    nexttile(T, [1,2])
+    nbins = 20;
+    P = EvaluateClassifier(X_test, Wstar, bstar);
+    [~, argmax] = max(P);
+    correct = argmax' == y_test;
+    hits = [];
+    misses = [];
+    for i=1:size(correct,1)
+        if (correct(i) == 1)
+            hits(end+1) = P(argmax(i),i);
+        else
+            misses(end+1) = P(argmax(i),i);
+        end
+    end
+    histogram(hits,nbins);
+    hold on
+    histogram(misses,nbins);
+    legend("Correctly Classified", "Incorrectly Classified")
+    xlim([0,1]);
+    xlabel("Probability");
+    ylabel("Frequency");
 end 
 
 function [X, Y, y] = LoadBatch(filename)
