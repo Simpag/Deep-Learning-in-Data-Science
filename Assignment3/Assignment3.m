@@ -111,12 +111,14 @@ function [P, Xs] = EvaluateClassifier(X, Ws, bs)
     %s = W * X + b;
 
     % Save Xs!
+    Xs = cell(size(Ws,1)-1, 1);
     s = X;
-    for i=1:size(Ws)-1
-        s = Ws(i) * s + bs(i);  % linear transformation
+    for i=1:size(Ws,1)-1
+        s = Ws{i} * s + bs{i};  % linear transformation
         s(s<0) = 0;             % ReLU activation
+        Xs{i} = s;
     end
-    s = Ws(end) * s + bs(end);
+    s = Ws{end} * s + bs{end};
     P = softmax(s);
     assert(all(size(P) == size(X)), "Something went wrong when evaluating the classifier!"); 
 end
@@ -132,7 +134,10 @@ function J = ComputeCost(X, y, Ws, bs, lambda)
     n = size(X,2);
     idx = sub2ind(size(P), y', 1:n);
     loss = -1 / n * sum(log(P(idx)));
-    regularizationTerm = lambda * sum(W.^2, 'all');
+    regularizationTerm = 0;
+    for W = Ws
+        regularizationTerm = regularizationTerm + lambda * sum(W.^2, 'all');
+    end
 
     J = loss + regularizationTerm;
 
@@ -152,16 +157,24 @@ function acc = ComputeAccuracy(X, y, Ws, bs)
     acc = sum(argmax' == y) / size(y, 1);
 end
 
-function [grad_W, grad_b] = ComputeGradients(X, Y, P, Ws, lambda)
-    
+function [grad_Ws, grad_bs] = ComputeGradients(Xs, X, Y, P, Ws, lambda)
+    grad_Ws = cell(size(Ws,1),1);
+    grad_bs = cell(size(bs,1),1);
+    n = size(X,2);
 
-    %n = size(X,2);
-    %G_batch = -(Y - P); % K x n
-    %grad_W = 1/n * G_batch * X' + 2 * lambda * W; 
-    %grad_b = 1/n * G_batch * ones(n,1);
+    G_batch = P-Y;
+
+    for i=size(Ws,1):-1:2
+        grad_Ws{i} = 1/n * G_batch * Xs{i-1}' + 2 * lambda * Ws{i};
+        grad_bs{i} = 1/n * G_batch * ones(n,1);
+        G_batch = Ws{i}' * G_batch;
+        G_batch(Xs{i-1} <= 0) = 0; % not sure if its correct
+    end
+    grad_Ws{1} = 1/n * G_batch * X' + 2 * lambda * Ws{1};
+    grad_bs{1} = 1/n * G_batch * ones(n,1);
 end
 
-function [Wstar, bstar, eta] = TrainOneEpoch(X, Y, GDparams, W, b, lambda, epoch) 
+function [Wstars, bstars, eta] = TrainOneEpoch(X, Y, GDparams, Ws, bs, lambda, epoch) 
     eta = GDparams(2);
     n_batch = GDparams(1);
     n = size(X,2);
@@ -173,19 +186,21 @@ function [Wstar, bstar, eta] = TrainOneEpoch(X, Y, GDparams, W, b, lambda, epoch
         Xbatch = X(:, inds);
         Ybatch = Y(:, inds);
 
-        P = EvaluateClassifier(Xbatch, W, b);
-        [grad_W, grad_b] = ComputeGradients(Xbatch, Ybatch, P, W, lambda);
-        W = W - eta * grad_W;
-        b = b - eta * grad_b;
+        [P, Xs] = EvaluateClassifier(Xbatch, Ws, bs);
+        [grad_Ws, grad_bs] = ComputeGradients(Xbatch, Xs, Ybatch, P, Ws, lambda);
+        for i = 1:size(Ws,1)
+            Ws{i} = Ws{i} - eta * grad_Ws{i};
+            bs{i} = bs{i} - eta * grad_bs{i};
+        end
 
         eta = RampUpStepScheduler(eta, j+(epoch-1)*n/n_batch);
     end
 
-    Wstar = W;
-    bstar = b;
+    Wstars = Ws;
+    bstars = bs;
 end
 
-function [Wstar, bstar, costs_train, costs_eval] = MiniBatchGD(X_train, Y_train, y_train, X_val, y_val, GDparams, W, b, lambda)
+function [Wstars, bstars, costs_train, costs_eval] = MiniBatchGD(X_train, Y_train, y_train, X_val, y_val, GDparams, Ws, bs, lambda)
     % X = d x n
     % W = K x d
     % b = K x 1
@@ -195,38 +210,13 @@ function [Wstar, bstar, costs_train, costs_eval] = MiniBatchGD(X_train, Y_train,
     costs_train = zeros(n_epochs, 1);
     costs_eval = zeros(n_epochs, 1);
     for i=1:n_epochs       
-        costs_train(i) = ComputeCost(X_train, y_train, W, b, lambda);
-        costs_eval(i) = ComputeCost(X_val, y_val, W, b, lambda);
-        [W, b, eta] = TrainOneEpoch(X_train, Y_train, GDparams, W, b, lambda, i);
+        costs_train(i) = ComputeCost(X_train, y_train, Ws, bs, lambda);
+        costs_eval(i) = ComputeCost(X_val, y_val, Ws, bs, lambda);
+        [Ws, bs, eta] = TrainOneEpoch(X_train, Y_train, GDparams, Ws, bs, lambda, i);
         GDparams(2) = eta;
         disp("Train cost at epoch: " + i + ": " + costs_train(i) + " Eval cost: " + costs_eval(i) + "; eta: " + GDparams(2));
     end 
     
-    Wstar = W;
-    bstar = b;
-end
-
-function [new_eta] = StepScheduler(eta, step)
-    new_eta = eta;
-    if (mod(step, 8000) == 0)
-        new_eta = eta * 0.8;
-    end
-end
-
-function [new_eta] = RampUpStepScheduler(eta, step)
-    new_eta = eta;
-
-    if (eta <= 0.0001)
-        new_eta = 0.0001;
-        return;
-    end
-
-    if (step < 3000)
-        new_eta = eta + 3*1e-6;
-        return;
-    end
-
-    if (mod(step, 3000) == 0)
-        new_eta = eta * 0.5;
-    end
+    Wstars = Ws;
+    bstars = bs;
 end
