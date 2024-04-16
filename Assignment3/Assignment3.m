@@ -1,21 +1,48 @@
 function Assignment3()
     % Params
     n_batch = 100;
-    eta = 0.001;
-    n_epochs = 30;
-    lambda = 0.01;
+    eta = 0.0001;
+    n_epochs = 300;
+    lambda = 0;
     rng(400);
 
-    [Wstar, bstar, costs_train, costs_eval] = Train(n_batch, eta, n_epochs, lambda);
-    test_accuracy = ComputeAccuracy(X_test, y_test, Wstar, bstar);
-    val_accuracy = ComputeAccuracy(X_val, y_val, Wstar, bstar);
-    disp("Test Accuracy: " + test_accuracy);
-    disp("Val Accuracy: " + val_accuracy);
+    input_nodes = 3072;
+    output_nodes = 10;
+    hidden_nodes = [50];
+    [Ws, bs] = InitializeWeights(input_nodes, output_nodes, hidden_nodes);
 
-    PlotResults(n_batch, eta, n_epochs, lambda, Wstar, costs_train, costs_eval);
+    [Wstars, bstars, costs_train, costs_eval] = Train(n_batch, eta, n_epochs, Ws, bs, lambda);
+
+    PlotResults(n_batch, eta, n_epochs, lambda, Wstars, costs_train, costs_eval);
 end
 
-function [Wstar, bstar, costs_train, costs_eval] = Train(n_batch, eta, n_epochs, lambda)
+function [Ws, bs] = InitializeWeights(input_nodes, output_nodes, hidden_nodes)
+    Ws = {};
+    bs = {};
+
+     % Initialize parameters
+     %K = size(Y_train, 1); % output_nodes
+     %d = size(X_train, 1); % input_nodes
+     %W = 0.01 * randn(K, d); % Gaussian random values for W
+     %b = 0.01 * randn(K, 1);  % Gaussian random values for b
+
+     if (isempty(hidden_nodes))
+        Ws{1} = 0.01 * randn(output_nodes, input_nodes);
+        bs{1} = zeros(output_nodes, 1);
+        return;
+     end
+
+     Ws{1} = 1/sqrt(input_nodes) * randn(hidden_nodes(1), input_nodes);
+     bs{1} = zeros(hidden_nodes(1), 1);
+     for i=2:length(hidden_nodes)
+        Ws{i} = 1/sqrt(hidden_nodes(i-1)) * randn(hidden_nodes(i), hidden_nodes(i-1));
+        bs{i} = zeros(hidden_nodes(i),1);
+     end
+     Ws{length(hidden_nodes)+1} = 1/sqrt(hidden_nodes(end)) * randn(output_nodes, hidden_nodes(end));
+     bs{length(hidden_nodes)+1} = zeros(output_nodes, 1);
+end
+
+function [Wstars, bstars, costs_train, costs_eval] = Train(n_batch, eta, n_epochs, Ws, bs, lambda)
     % Load data
     %[X1, Y1, y1] = LoadBatch("data_batch_1.mat");
     %[X2, Y2, y2] = LoadBatch("data_batch_3.mat");
@@ -44,17 +71,17 @@ function [Wstar, bstar, costs_train, costs_eval] = Train(n_batch, eta, n_epochs,
     %[X_train, Y_train, y_train] = AddFlips(X_train, Y_train, y_train);
     %X_train = AddRandomNoise(X_train, 0.005);
 
-    % Initialize parameters
-    K = size(Y_train, 1);
-    d = size(X_train, 1);
-    W = 0.01 * randn(K, d); % Gaussian random values for W
-    b = 0.01 * randn(K, 1);  % Gaussian random values for b
-
     GDparams = [n_batch, eta, n_epochs];
-    [Wstar, bstar, costs_train, costs_eval] = MiniBatchGD(X_train, Y_train, y_train, X_val, y_val, GDparams, W, b, lambda);
+    [Wstars, bstars, costs_train, costs_eval] = MiniBatchGD(X_train(:,1:100), Y_train(:,1:100), y_train(1:100), X_val, y_val, GDparams, Ws, bs, lambda);
+
+    test_accuracy = ComputeAccuracy(X_test, y_test, Wstars, bstars);
+    val_accuracy = ComputeAccuracy(X_val, y_val, Wstars, bstars);
+    disp("Test Accuracy: " + test_accuracy);
+    disp("Val Accuracy: " + val_accuracy);
 end
 
-function PlotResults(n_batch, eta, n_epochs, lambda, Wstar, costs_train, costs_eval)
+function PlotResults(n_batch, eta, n_epochs, lambda, Wstars, costs_train, costs_eval)
+    % Plotting
     scr_siz = get(0,'ScreenSize');
     f = figure;
     f.Position = floor([150 150 scr_siz(3)*0.8 scr_siz(4)*0.8]);
@@ -66,12 +93,13 @@ function PlotResults(n_batch, eta, n_epochs, lambda, Wstar, costs_train, costs_e
     s_im = {};
     for i=1:10
         nexttile(t);
-        im = reshape(Wstar(i, :), 32, 32, 3);
+        im = reshape(Wstars{end}(i, :), 32, 32, 3);
         s_im{i} = (im - min(im(:))) / (max(im(:)) - min(im(:)));
         s_im{i} = permute(s_im{i}, [2, 1, 3]);
         imshow(s_im{i})
     end
 
+    % Plot train-validation losses
     nexttile(T);
     plot(1:n_epochs, costs_train, 1:n_epochs, costs_eval);
     legend("Training loss", "Validation loss");
@@ -111,16 +139,16 @@ function [P, Xs] = EvaluateClassifier(X, Ws, bs)
     %s = W * X + b;
 
     % Save Xs!
-    Xs = cell(size(Ws,1)-1, 1);
+    Xs = cell(length(Ws)-1, 1);
     s = X;
-    for i=1:size(Ws,1)-1
+    for i=1:length(Ws)-1
         s = Ws{i} * s + bs{i};  % linear transformation
         s(s<0) = 0;             % ReLU activation
         Xs{i} = s;
     end
     s = Ws{end} * s + bs{end};
-    P = softmax(s);
-    assert(all(size(P) == size(X)), "Something went wrong when evaluating the classifier!"); 
+    %P = softmax(s);
+    P = exp(s) / sum(exp(s), 'all');
 end
 
 function J = ComputeCost(X, y, Ws, bs, lambda)
@@ -135,8 +163,8 @@ function J = ComputeCost(X, y, Ws, bs, lambda)
     idx = sub2ind(size(P), y', 1:n);
     loss = -1 / n * sum(log(P(idx)));
     regularizationTerm = 0;
-    for W = Ws
-        regularizationTerm = regularizationTerm + lambda * sum(W.^2, 'all');
+    for i=1:length(Ws)
+        regularizationTerm = regularizationTerm + lambda * sum(Ws{i}.^2, 'all');
     end
 
     J = loss + regularizationTerm;
@@ -157,14 +185,14 @@ function acc = ComputeAccuracy(X, y, Ws, bs)
     acc = sum(argmax' == y) / size(y, 1);
 end
 
-function [grad_Ws, grad_bs] = ComputeGradients(Xs, X, Y, P, Ws, lambda)
-    grad_Ws = cell(size(Ws,1),1);
-    grad_bs = cell(size(bs,1),1);
+function [grad_Ws, grad_bs] = ComputeGradients(Xs, X, Y, P, Ws, bs, lambda)
+    grad_Ws = cell(length(Ws),1);
+    grad_bs = cell(length(bs),1);
     n = size(X,2);
 
     G_batch = P-Y;
 
-    for i=size(Ws,1):-1:2
+    for i=length(Ws):-1:2
         grad_Ws{i} = 1/n * G_batch * Xs{i-1}' + 2 * lambda * Ws{i};
         grad_bs{i} = 1/n * G_batch * ones(n,1);
         G_batch = Ws{i}' * G_batch;
@@ -187,13 +215,11 @@ function [Wstars, bstars, eta] = TrainOneEpoch(X, Y, GDparams, Ws, bs, lambda, e
         Ybatch = Y(:, inds);
 
         [P, Xs] = EvaluateClassifier(Xbatch, Ws, bs);
-        [grad_Ws, grad_bs] = ComputeGradients(Xbatch, Xs, Ybatch, P, Ws, lambda);
-        for i = 1:size(Ws,1)
+        [grad_Ws, grad_bs] = ComputeGradients(Xs, Xbatch, Ybatch, P, Ws, bs, lambda);
+        for i = 1:length(Ws)
             Ws{i} = Ws{i} - eta * grad_Ws{i};
             bs{i} = bs{i} - eta * grad_bs{i};
         end
-
-        eta = RampUpStepScheduler(eta, j+(epoch-1)*n/n_batch);
     end
 
     Wstars = Ws;
@@ -206,6 +232,7 @@ function [Wstars, bstars, costs_train, costs_eval] = MiniBatchGD(X_train, Y_trai
     % b = K x 1
     % lambda = scalar
     % GDparams = [n_batch, eta, n_epochs]
+
     n_epochs = GDparams(3);
     costs_train = zeros(n_epochs, 1);
     costs_eval = zeros(n_epochs, 1);
