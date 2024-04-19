@@ -1,19 +1,19 @@
 function Assignment3()
     % Params
-    n_batch = 100;
-    eta = 0.0001;
-    n_epochs = 300;
+    n_batch = 10;
+    eta = 0.005;
+    n_epochs = 50;
     lambda = 0;
     rng(400);
 
     input_nodes = 3072;
     output_nodes = 10;
-    hidden_nodes = [50];
+    hidden_nodes = [50,];
     [Ws, bs] = InitializeWeights(input_nodes, output_nodes, hidden_nodes);
 
-    [Wstars, bstars, costs_train, costs_eval] = Train(n_batch, eta, n_epochs, Ws, bs, lambda);
+    [Wstars, bstars, costs_train, costs_eval, acc_eval] = Train(n_batch, eta, n_epochs, Ws, bs, lambda);
 
-    PlotResults(n_batch, eta, n_epochs, lambda, Wstars, costs_train, costs_eval);
+    PlotResults(n_batch, eta, n_epochs, lambda, costs_train, costs_eval, acc_eval);
 end
 
 function [Ws, bs] = InitializeWeights(input_nodes, output_nodes, hidden_nodes)
@@ -42,7 +42,7 @@ function [Ws, bs] = InitializeWeights(input_nodes, output_nodes, hidden_nodes)
      bs{length(hidden_nodes)+1} = zeros(output_nodes, 1);
 end
 
-function [Wstars, bstars, costs_train, costs_eval] = Train(n_batch, eta, n_epochs, Ws, bs, lambda)
+function [Wstars, bstars, costs_train, costs_eval, acc_eval] = Train(n_batch, eta, n_epochs, Ws, bs, lambda)
     % Load data
     %[X1, Y1, y1] = LoadBatch("data_batch_1.mat");
     %[X2, Y2, y2] = LoadBatch("data_batch_3.mat");
@@ -72,7 +72,7 @@ function [Wstars, bstars, costs_train, costs_eval] = Train(n_batch, eta, n_epoch
     %X_train = AddRandomNoise(X_train, 0.005);
 
     GDparams = [n_batch, eta, n_epochs];
-    [Wstars, bstars, costs_train, costs_eval] = MiniBatchGD(X_train(:,1:100), Y_train(:,1:100), y_train(1:100), X_val, y_val, GDparams, Ws, bs, lambda);
+    [Wstars, bstars, costs_train, costs_eval, acc_eval] = MiniBatchGD(X_train(:,1:100), Y_train(:,1:100), y_train(1:100), X_val, y_val, GDparams, Ws, bs, lambda);
 
     test_accuracy = ComputeAccuracy(X_test, y_test, Wstars, bstars);
     val_accuracy = ComputeAccuracy(X_val, y_val, Wstars, bstars);
@@ -80,33 +80,30 @@ function [Wstars, bstars, costs_train, costs_eval] = Train(n_batch, eta, n_epoch
     disp("Val Accuracy: " + val_accuracy);
 end
 
-function PlotResults(n_batch, eta, n_epochs, lambda, Wstars, costs_train, costs_eval)
+function PlotResults(n_batch, eta, n_epochs, lambda, costs_train, costs_eval, acc_eval)
     % Plotting
     scr_siz = get(0,'ScreenSize');
     f = figure;
     f.Position = floor([150 150 scr_siz(3)*0.8 scr_siz(4)*0.8]);
-    T = tiledlayout(f, 1,2);
+    T = tiledlayout(f, 2, 1);
     title(T, "Lambda: " + lambda + ", Epochs: " + n_epochs + ", Batch Size: " + n_batch + ", \eta: " + eta);
-
-    % Visualize the learn weights
-    t = tiledlayout(T,4,3);
-    s_im = {};
-    for i=1:10
-        nexttile(t);
-        im = reshape(Wstars{end}(i, :), 32, 32, 3);
-        s_im{i} = (im - min(im(:))) / (max(im(:)) - min(im(:)));
-        s_im{i} = permute(s_im{i}, [2, 1, 3]);
-        imshow(s_im{i})
-    end
 
     % Plot train-validation losses
     nexttile(T);
     plot(1:n_epochs, costs_train, 1:n_epochs, costs_eval);
     legend("Training loss", "Validation loss");
-    ylim([min(costs_train) * 0.9,max(costs_train) * 1.1]);
+    %ylim([min(costs_train) * 0.9,max(costs_train) * 1.1]);
     grid();
     xlabel("Epoch")
     ylabel("Loss")
+    fontsize(T,24,"points")
+
+    % Plot validation accuracy
+    nexttile(T);
+    plot(1:n_epochs, acc_eval);
+    grid();
+    xlabel("Epoch")
+    ylabel("Accuracy")
     fontsize(T,24,"points")
 end
 
@@ -147,8 +144,7 @@ function [P, Xs] = EvaluateClassifier(X, Ws, bs)
         Xs{i} = s;
     end
     s = Ws{end} * s + bs{end};
-    %P = softmax(s);
-    P = exp(s) / sum(exp(s), 'all');
+    P = softmax(s);
 end
 
 function J = ComputeCost(X, y, Ws, bs, lambda)
@@ -226,7 +222,7 @@ function [Wstars, bstars, eta] = TrainOneEpoch(X, Y, GDparams, Ws, bs, lambda, e
     bstars = bs;
 end
 
-function [Wstars, bstars, costs_train, costs_eval] = MiniBatchGD(X_train, Y_train, y_train, X_val, y_val, GDparams, Ws, bs, lambda)
+function [Wstars, bstars, costs_train, costs_eval, acc_eval] = MiniBatchGD(X_train, Y_train, y_train, X_val, y_val, GDparams, Ws, bs, lambda)
     % X = d x n
     % W = K x d
     % b = K x 1
@@ -236,9 +232,11 @@ function [Wstars, bstars, costs_train, costs_eval] = MiniBatchGD(X_train, Y_trai
     n_epochs = GDparams(3);
     costs_train = zeros(n_epochs, 1);
     costs_eval = zeros(n_epochs, 1);
+    acc_eval = zeros(n_epochs, 1);
     for i=1:n_epochs       
         costs_train(i) = ComputeCost(X_train, y_train, Ws, bs, lambda);
         costs_eval(i) = ComputeCost(X_val, y_val, Ws, bs, lambda);
+        acc_eval(i) = ComputeAccuracy(X_val, y_val, Ws, bs);
         [Ws, bs, eta] = TrainOneEpoch(X_train, Y_train, GDparams, Ws, bs, lambda, i);
         GDparams(2) = eta;
         disp("Train cost at epoch: " + i + ": " + costs_train(i) + " Eval cost: " + costs_eval(i) + "; eta: " + GDparams(2));
