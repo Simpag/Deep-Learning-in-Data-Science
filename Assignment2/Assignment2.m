@@ -1,7 +1,6 @@
 function Assignment2()
     NetParams = struct();
     NetParams.disable_logging = false;
-    NetParams.use_adam = true;
 
     % Load data
     [X_train, Y_train, y_train, X_val, Y_val, y_val, X_test, Y_test, y_test] = LoadData();
@@ -22,10 +21,6 @@ function Assignment2()
     NetParams.eta_max = 1e-1;
     NetParams.eta_step = 2 * floor(NetParams.n / NetParams.n_batch);
     NetParams.eta = 0.001;
-
-    NetParams.beta_1 = 0.9;
-    NetParams.beta_2 = 0.999;
-    NetParams.epsilon = 1e-8;
 
     max_num_cycles = 5;
     NetParams.max_train_steps = 2 * NetParams.eta_step * max_num_cycles; % Last multi is number of cycles
@@ -284,15 +279,6 @@ function [Wstars, bstars, costs_train, costs_val, loss_train, loss_val, acc_trai
     acc_val = [];
     etas = [];
     time = [];
-    
-    adamWs = {};
-    adambs = {};
-    if (NetParams.use_adam)
-        for k = 1:length(NetParams.Ws)
-            adamWs{k} = AdamOptimizer(NetParams.beta_1, NetParams.beta_2, NetParams.epsilon, size(NetParams.Ws{k},1), size(NetParams.Ws{k},2));
-            adambs{k} = AdamOptimizer(NetParams.beta_1, NetParams.beta_2, NetParams.epsilon, size(NetParams.bs{k},1), size(NetParams.bs{k},2));
-        end
-    end
 
     n = size(X_train,2);
     m = n/NetParams.n_batch;
@@ -307,11 +293,7 @@ function [Wstars, bstars, costs_train, costs_val, loss_train, loss_val, acc_trai
             Xbatch = X_train(:, inds);
             Ybatch = Y_train(:, inds);
 
-            if (NetParams.use_adam)
-                eta = NetParams.eta;
-            else
-                eta = CyclicScheduler(t, NetParams);
-            end
+            eta = CyclicScheduler(t, NetParams);
 
             if (mod(t,floor(2 * NetParams.eta_step / NetParams.log_frequency)) == 0)
                 if (~NetParams.disable_logging)
@@ -333,16 +315,9 @@ function [Wstars, bstars, costs_train, costs_val, loss_train, loss_val, acc_trai
 
             [P, Xs] = EvaluateClassifier(Xbatch, NetParams.Ws, NetParams.bs);
             [grad_Ws, grad_bs] = ComputeGradients(Xs, Xbatch, Ybatch, P, NetParams.Ws, NetParams.bs, NetParams.lambda);
-            if (NetParams.use_adam)
-                for k = 1:length(NetParams.Ws)
-                    [adamWs{k}, NetParams.Ws{k}] = adamWs{k}.Update(NetParams.Ws{k}, grad_Ws{k}, eta);
-                    [adambs{k}, NetParams.bs{k}] = adambs{k}.Update(NetParams.bs{k}, grad_bs{k}, eta);
-                end
-            else
-                for k = 1:length(NetParams.Ws)
-                    NetParams.Ws{k} = NetParams.Ws{k} - eta * grad_Ws{k};
-                    NetParams.bs{k} = NetParams.bs{k} - eta * grad_bs{k};
-                end
+            for k = 1:length(NetParams.Ws)
+                NetParams.Ws{k} = NetParams.Ws{k} - eta * grad_Ws{k};
+                NetParams.bs{k} = NetParams.bs{k} - eta * grad_bs{k};
             end
 
             if (t >= NetParams.max_train_steps && NetParams.max_train_steps > 0 && ~NetParams.disable_logging)

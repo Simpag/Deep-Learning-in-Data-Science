@@ -1,6 +1,7 @@
 function Assignment2_bonus()
     NetParams = struct();
     NetParams.disable_logging = false;
+    NetParams.use_adam = true;
 
     % Load data
     [X_train, Y_train, y_train, X_val, Y_val, y_val, X_test, Y_test, y_test] = LoadData();
@@ -9,9 +10,13 @@ function Assignment2_bonus()
     NetParams.k = size(Y_train, 1);
 
     % Params
+    NetParams.shiftProb = 0.5;
+    NetParams.mirrorProb = 0.5;
+
     NetParams.input_nodes = NetParams.d;
     NetParams.output_nodes = NetParams.k;
     NetParams.hidden_nodes = [50,];
+    NetParams.dropout = 0.8;
 
     NetParams.n_batch = 100;
     NetParams.n_epochs = 100;
@@ -20,9 +25,13 @@ function Assignment2_bonus()
     NetParams.eta_min = 1e-5;
     NetParams.eta_max = 1e-1;
     NetParams.eta_step = 2 * floor(NetParams.n / NetParams.n_batch);
-    NetParams.eta = 0.005;
+    NetParams.eta = 0.0008;
 
-    max_num_cycles = 5;
+    NetParams.beta_1 = 0.9;
+    NetParams.beta_2 = 0.999;
+    NetParams.epsilon = 1e-8;
+
+    max_num_cycles = 4;
     NetParams.max_train_steps = 2 * NetParams.eta_step * max_num_cycles; % Last multi is number of cycles
     NetParams.log_frequency = 10; % How many times per cycle to log loss/accuracy etc
     %rng(400);
@@ -30,17 +39,20 @@ function Assignment2_bonus()
     %ParameterSearch(X_train, Y_train, y_train, X_val, y_val, NetParams);
     %return;
 
+    ParameterSearch2(X_train, Y_train, y_train, X_val, y_val, NetParams);
+    return;
+
     % Init network
     [NetParams.Ws, NetParams.bs] = InitializeWeights(NetParams);
 
     [NetParams.Ws, NetParams.bs, costs_train, costs_val, loss_train, loss_val, acc_train, acc_val, etas, time] = MiniBatchGD(X_train, Y_train, y_train, X_val, y_val, NetParams);
     
-    test_accuracy = ComputeAccuracy(X_test, y_test, NetParams.Ws, NetParams.bs);
-    val_accuracy = ComputeAccuracy(X_val, y_val, NetParams.Ws, NetParams.bs);
+    test_accuracy = ComputeAccuracy(X_test, y_test, NetParams);
+    val_accuracy = ComputeAccuracy(X_val, y_val, NetParams);
     disp("Test Accuracy: " + test_accuracy);
     disp("Val Accuracy: " + val_accuracy);
 
-    PlotResults(NetParams, costs_train, costs_val, loss_train, loss_val, acc_train, acc_val, etas, time);
+    %PlotResults(NetParams, costs_train, costs_val, loss_train, loss_val, acc_train, acc_val, etas, time);
 end
 
 function ParameterSearch(X_train, Y_train, y_train, X_val, y_val, NetParams)
@@ -65,11 +77,68 @@ function ParameterSearch(X_train, Y_train, y_train, X_val, y_val, NetParams)
 
         [NP.Ws, NP.bs, ~, ~, ~, ~, ~, ~, ~, ~] = MiniBatchGD(X_train, Y_train, y_train, X_val, y_val, NP);
         
-        val_accuracy = ComputeAccuracy(X_val, y_val, NP.Ws, NP.bs);
+        val_accuracy = ComputeAccuracy(X_val, y_val, NP);
 
         data = string(NP.lambda) + ";" + string(val_accuracy) + "\n";
 
         disp("Tried lambda: " + NP.lambda + "; Accuracy: " + val_accuracy);
+
+        writelines(data, filename, WriteMode="append");
+    end
+end
+
+function ParameterSearch2(X_train, Y_train, y_train, X_val, y_val, NetParams)
+    lmin = -5;
+    lmax = -1;
+    node_min = 50;
+    node_max = 500;
+    drop_min = 0.5;
+    drop_max = 1;
+    shift_min = 0;
+    shift_max = 0.5;
+    mirror_min = 0;
+    mirror_max = 0.5;
+    eta_min = 0.0001;
+    eta_max = 0.005
+    filename = "C:\Users\Simon\Documents\Github\Deep-Learning-in-Data-Science\Assignment2/random_search_bonus.txt";
+    %grid = logspace(lmin, lmax, 10);
+
+    %lmin = log10(0.0006);
+    %lmax = log10(0.01);
+
+    %for i=grid
+    for i=1:20
+        disp(string(round(i/25*100)) + "%")
+        NP = NetParams;
+        l = lmin + (lmax - lmin)*rand(); 
+        NP.lambda = 10^l;
+        
+        sp = shift_min + (shift_max - shift_min)*rand();
+        NP.shiftProb = sp;
+
+        mp = mirror_min + (mirror_max - mirror_min)*rand();
+        NP.mirrorProb = mp;
+
+        hn = node_min + (node_max - node_min)*rand();
+        hn = round(hn);
+        NP.hidden_nodes = [hn,];
+
+        do = drop_min + (drop_max - drop_min)*rand();
+        NP.dropout = do;
+
+        e = eta_min + (eta_max - eta_min)*rand();
+        NP.eta = e;
+
+        % Init network
+        [NP.Ws, NP.bs] = InitializeWeights(NP);
+
+        [NP.Ws, NP.bs, ~, ~, ~, ~, ~, ~, ~, ~] = MiniBatchGD(X_train, Y_train, y_train, X_val, y_val, NP);
+        
+        val_accuracy = ComputeAccuracy(X_val, y_val, NP);
+
+        data = string(val_accuracy) + ";" + string(NP.lambda) + ";" + string( NP.shiftProb) + ";" + string(NP.mirrorProb) + ";" + string(NP.hidden_nodes) + ";" + string(NP.dropout) + ";" + string(NP.eta);
+
+        disp(data);
 
         writelines(data, filename, WriteMode="append");
     end
@@ -194,7 +263,7 @@ function ret = NormalizeData(X, mean, std)
     ret = ret ./ repmat(std, [1, size(ret, 2)]);
 end
 
-function [P, Xs] = EvaluateClassifier(X, Ws, bs)
+function [P, Xs] = EvaluateClassifier(X, NetParams, training)
     % X = d x n
     % W = K x d
     % b = K x 1
@@ -203,31 +272,36 @@ function [P, Xs] = EvaluateClassifier(X, Ws, bs)
     %s = W * X + b;
 
     % Save Xs!
-    Xs = cell(length(Ws)-1, 1);
+    Xs = cell(length(NetParams.Ws)-1, 1);
     s = X;
-    for i=1:length(Ws)-1
-        s = Ws{i} * s + bs{i};  % linear transformation
-        s(s<0) = 0;             % ReLU activation
-        Xs{i} = s;
+    for i=1:length(NetParams.Ws)-1
+        s = NetParams.Ws{i} * s + NetParams.bs{i};                        % linear transformation
+        s(s<0) = 0;                                                       % ReLU activation
+        if (training && NetParams.dropout > 0)
+            u = (rand(size(s)) < NetParams.dropout) / NetParams.dropout;  % Dropout
+            Xs{i} = s .* u;
+        else
+            Xs{i} = s;
+        end
     end
-    s = Ws{end} * s + bs{end};
+    s = NetParams.Ws{end} * s + NetParams.bs{end};
     P = softmax(s);
 end
 
-function [J, loss] = ComputeCost(X, y, Ws, bs, lambda)
+function [J, loss] = ComputeCost(X, y, NetParams)
     % X = d x n
     % W = K x d
     % b = K x 1
     % Y = K x n
     % J = scalar
     
-    [P, ~] = EvaluateClassifier(X, Ws, bs);
+    [P, ~] = EvaluateClassifier(X, NetParams, false);
     n = size(X,2);
     idx = sub2ind(size(P), y', 1:n);
     loss = -1 / n * sum(log(P(idx)));
     regularizationTerm = 0;
-    for i=1:length(Ws)
-        regularizationTerm = regularizationTerm + lambda * sum(Ws{i}.^2, 'all');
+    for i=1:length(NetParams.Ws)
+        regularizationTerm = regularizationTerm + NetParams.lambda * sum(NetParams.Ws{i}.^2, 'all');
     end
 
     J = loss + regularizationTerm;
@@ -235,33 +309,33 @@ function [J, loss] = ComputeCost(X, y, Ws, bs, lambda)
     assert(all(size(J) == 1), "Something went wrong when computing the cost function!")
 end
 
-function acc = ComputeAccuracy(X, y, Ws, bs)
+function acc = ComputeAccuracy(X, y, NetParams)
     % X = d x n
     % W = K x d
     % b = K x 1
     % y = n x 1
     % acc = scalar
 
-    [P, ~] = EvaluateClassifier(X, Ws, bs);
+    [P, ~] = EvaluateClassifier(X, NetParams, false);
     [~, argmax] = max(P);
 
     acc = sum(argmax' == y) / size(y, 1);
 end
 
-function [grad_Ws, grad_bs] = ComputeGradients(Xs, X, Y, P, Ws, bs, lambda)
-    grad_Ws = cell(length(Ws),1);
-    grad_bs = cell(length(bs),1);
+function [grad_Ws, grad_bs] = ComputeGradients(Xs, X, Y, P, NetParams)
+    grad_Ws = cell(length(NetParams.Ws),1);
+    grad_bs = cell(length(NetParams.bs),1);
     n = size(X,2);
 
     G_batch = P-Y;
 
-    for i=length(Ws):-1:2
-        grad_Ws{i} = 1/n * G_batch * Xs{i-1}' + 2 * lambda * Ws{i};
+    for i=length(NetParams.Ws):-1:2
+        grad_Ws{i} = 1/n * G_batch * Xs{i-1}' + 2 * NetParams.lambda * NetParams.Ws{i};
         grad_bs{i} = 1/n * G_batch * ones(n,1);
-        G_batch = Ws{i}' * G_batch;
+        G_batch = NetParams.Ws{i}' * G_batch;
         G_batch(Xs{i-1} <= 0) = 0; % not sure if its correct
     end
-    grad_Ws{1} = 1/n * G_batch * X' + 2 * lambda * Ws{1};
+    grad_Ws{1} = 1/n * G_batch * X' + 2 * NetParams.lambda * NetParams.Ws{1};
     grad_bs{1} = 1/n * G_batch * ones(n,1);
 end
 
@@ -280,6 +354,15 @@ function [Wstars, bstars, costs_train, costs_val, loss_train, loss_val, acc_trai
     etas = [];
     time = [];
 
+    adamWs = {};
+    adambs = {};
+    if (NetParams.use_adam)
+        for k = 1:length(NetParams.Ws)
+            adamWs{k} = AdamOptimizer(NetParams.beta_1, NetParams.beta_2, NetParams.epsilon, size(NetParams.Ws{k},1), size(NetParams.Ws{k},2));
+            adambs{k} = AdamOptimizer(NetParams.beta_1, NetParams.beta_2, NetParams.epsilon, size(NetParams.bs{k},1), size(NetParams.bs{k},2));
+        end
+    end
+
     n = size(X_train,2);
     m = n/NetParams.n_batch;
     t = 0;
@@ -291,19 +374,25 @@ function [Wstars, bstars, costs_train, costs_val, loss_train, loss_val, acc_trai
             j_end = j*NetParams.n_batch;
             inds = perm(j_start:j_end);
             Xbatch = X_train(:, inds);
+            Xbatch = AugmentBatch(Xbatch, NetParams);
             Ybatch = Y_train(:, inds);
-            eta = CyclicScheduler(t, NetParams);
+            
+            if (NetParams.use_adam)
+                eta = NetParams.eta;
+            else
+                eta = CyclicScheduler(t, NetParams);
+            end
 
             if (mod(t,floor(2 * NetParams.eta_step / NetParams.log_frequency)) == 0)
                 if (~NetParams.disable_logging)
                     etas(idx) = eta;
-                    [costs_train(idx), loss_train(idx)] = ComputeCost(X_train, y_train, NetParams.Ws, NetParams.bs, NetParams.lambda);
-                    [costs_val(idx), loss_val(idx)] = ComputeCost(X_val, y_val, NetParams.Ws, NetParams.bs, NetParams.lambda);
-                    acc_train(idx) = ComputeAccuracy(X_train, y_train, NetParams.Ws, NetParams.bs);
-                    acc_val(idx) = ComputeAccuracy(X_val, y_val, NetParams.Ws, NetParams.bs);
+                    [costs_train(idx), loss_train(idx)] = ComputeCost(X_train, y_train, NetParams);
+                    [costs_val(idx), loss_val(idx)] = ComputeCost(X_val, y_val, NetParams);
+                    acc_train(idx) = ComputeAccuracy(X_train, y_train, NetParams);
+                    acc_val(idx) = ComputeAccuracy(X_val, y_val, NetParams);
                     time(idx) = t;
 
-                    disp("Train cost at update step: " + time(idx) + ": " + costs_train(idx) + " Eval cost: " + costs_val(idx));
+                    disp("Update step: " + time(idx) + "; Train cost: " + costs_train(idx) + "; Eval cost: " + costs_val(idx) + "; Val acc: " + acc_val(idx) + "; Train acc: " + acc_train(idx));
                     idx = idx + 1;
                 else
                     disp("Update step: " + t)
@@ -312,19 +401,26 @@ function [Wstars, bstars, costs_train, costs_val, loss_train, loss_val, acc_trai
 
             t = t + 1;
 
-            [P, Xs] = EvaluateClassifier(Xbatch, NetParams.Ws, NetParams.bs);
-            [grad_Ws, grad_bs] = ComputeGradients(Xs, Xbatch, Ybatch, P, NetParams.Ws, NetParams.bs, NetParams.lambda);
-            for k = 1:length(NetParams.Ws)
-                NetParams.Ws{k} = NetParams.Ws{k} - eta * grad_Ws{k};
-                NetParams.bs{k} = NetParams.bs{k} - eta * grad_bs{k};
+            [P, Xs] = EvaluateClassifier(Xbatch, NetParams, true);
+            [grad_Ws, grad_bs] = ComputeGradients(Xs, Xbatch, Ybatch, P, NetParams);
+            if (NetParams.use_adam)
+                for k = 1:length(NetParams.Ws)
+                    [adamWs{k}, NetParams.Ws{k}] = adamWs{k}.Update(NetParams.Ws{k}, grad_Ws{k}, eta);
+                    [adambs{k}, NetParams.bs{k}] = adambs{k}.Update(NetParams.bs{k}, grad_bs{k}, eta);
+                end
+            else
+                for k = 1:length(NetParams.Ws)
+                    NetParams.Ws{k} = NetParams.Ws{k} - eta * grad_Ws{k};
+                    NetParams.bs{k} = NetParams.bs{k} - eta * grad_bs{k};
+                end
             end
 
             if (t >= NetParams.max_train_steps && NetParams.max_train_steps > 0 && ~NetParams.disable_logging)
                 etas(idx) = eta;
-                [costs_train(idx), loss_train(idx)] = ComputeCost(X_train, y_train, NetParams.Ws, NetParams.bs, NetParams.lambda);
-                [costs_val(idx), loss_val(idx)] = ComputeCost(X_val, y_val, NetParams.Ws, NetParams.bs, NetParams.lambda);
-                acc_train(idx) = ComputeAccuracy(X_train, y_train, NetParams.Ws, NetParams.bs);
-                acc_val(idx) = ComputeAccuracy(X_val, y_val, NetParams.Ws, NetParams.bs);
+                [costs_train(idx), loss_train(idx)] = ComputeCost(X_train, y_train, NetParams);
+                [costs_val(idx), loss_val(idx)] = ComputeCost(X_val, y_val, NetParams);
+                acc_train(idx) = ComputeAccuracy(X_train, y_train, NetParams);
+                acc_val(idx) = ComputeAccuracy(X_val, y_val, NetParams);
                 time(idx) = t;
 
                 Wstars = NetParams.Ws;
@@ -337,6 +433,55 @@ function [Wstars, bstars, costs_train, costs_val, loss_train, loss_val, acc_trai
 
     Wstars = NetParams.Ws;
     bstars = NetParams.bs;
+end
+
+function X = AugmentBatch(X_batch, NetParams)
+    X = MirrorBatch(X_batch, NetParams.mirrorProb);
+    X = ShiftBatch(X, NetParams.shiftProb);
+end
+
+function X = ShiftBatch(X_batch, p)
+    X = X_batch;
+    for i=1:size(X_batch,2)
+        if (rand() > p)
+            continue;
+        end
+        tx = round(rand() * 10);
+        ty = round(rand() * 10);
+        aa = 0:1:31;
+        vv = repmat(32*aa, 32-tx, 1);
+        bb1 = tx+1:1:32;
+        bb2 = 1:32-tx;
+
+        ind_fill = vv(:) + repmat(bb1', 32, 1);
+        ind_xx = vv(:) + repmat(bb2', 32, 1);
+
+        ii = find(ind_fill >= ty*32+1);
+        ind_fill = ind_fill(ii(1):end);
+
+        ii = find(ind_xx <= 1024-ty*32);
+        ind_xx = ind_xx(1:ii(end));
+        inds_fill = [ind_fill; 1024+ind_fill; 2048+ind_fill];
+        inds_xx = [ind_xx; 1024+ind_xx; 2048+ind_xx];
+
+        X(inds_fill,i) = X_batch(inds_xx,i);
+    end
+end
+
+function X = MirrorBatch(X_batch, p)
+    X = X_batch;
+    for i=1:size(X_batch,2)
+        if (rand() > p)
+            continue;
+        end
+        aa = 0:1:31;
+        bb = 32:-1:1;
+        vv = repmat(32*aa, 32, 1);
+        ind_flip = vv(:) + repmat(bb', 32, 1);
+        inds_flip = [ind_flip; 1024+ind_flip; 2048+ind_flip];
+
+        X(:,i) = X_batch(inds_flip, i);
+    end
 end
 
 function eta = CyclicScheduler(t, NetParams)
