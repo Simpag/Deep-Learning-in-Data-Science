@@ -9,16 +9,16 @@ function CheckGradients()
     X_train = NormalizeData(X_train, mean_X, std_X);
 
     % Initialize parameters
-    input_nodes = 20;
+    input_nodes = 50;
     output_nodes = 10;
-    hidden_nodes = [50,];
+    hidden_nodes = [100,];
     [Ws, bs] = InitializeWeights(input_nodes, output_nodes, hidden_nodes);
 
     X_train = X_train(1:input_nodes, 1:100);
     Y_train = Y_train(:, 1:100);
 
-    n_batch = 10;
-    lambda = 0.0;
+    n_batch = 20;
+    lambda = 0.1;
     h = 1e-5;
     n = size(X_train,2);
     n = 20;

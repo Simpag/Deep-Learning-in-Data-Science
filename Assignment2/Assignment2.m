@@ -1,9 +1,10 @@
 function Assignment2()
     NetParams = struct();
     NetParams.disable_logging = false;
+    NetParams.all_training_data = true;
 
     % Load data
-    [X_train, Y_train, y_train, X_val, Y_val, y_val, X_test, Y_test, y_test] = LoadData();
+    [X_train, Y_train, y_train, X_val, Y_val, y_val, X_test, Y_test, y_test] = LoadData(NetParams);
     NetParams.n = size(X_train,2);
     NetParams.d = size(X_train, 1);
     NetParams.k = size(Y_train, 1);
@@ -15,14 +16,14 @@ function Assignment2()
 
     NetParams.n_batch = 100;
     NetParams.n_epochs = 100;
-    NetParams.lambda = 0.0028884; % best lambda
+    NetParams.lambda = 0.0028884; % best lambda 0.0028884
 
     NetParams.eta_min = 1e-5;
     NetParams.eta_max = 1e-1;
     NetParams.eta_step = 2 * floor(NetParams.n / NetParams.n_batch);
     NetParams.eta = 0.001;
 
-    max_num_cycles = 5;
+    max_num_cycles = 4;
     NetParams.max_train_steps = 2 * NetParams.eta_step * max_num_cycles; % Last multi is number of cycles
     NetParams.log_frequency = 10; % How many times per cycle to log loss/accuracy etc
     %rng(400);
@@ -79,45 +80,47 @@ function [Ws, bs] = InitializeWeights(NetParams)
     Ws = {};
     bs = {};
 
-     % Initialize parameters
-     %K = size(Y_train, 1); % output_nodes
-     %d = size(X_train, 1); % input_nodes
-     %W = 0.01 * randn(K, d); % Gaussian random values for W
-     %b = 0.01 * randn(K, 1);  % Gaussian random values for b
+    % Initialize parameters
 
-     if (isempty(NetParams.hidden_nodes))
+    if (isempty(NetParams.hidden_nodes))
         Ws{1} = 0.01 * randn(NetParams.output_nodes, NetParams.input_nodes);
         bs{1} = zeros(NetParams.output_nodes, 1);
         return;
-     end
+    end
 
-     Ws{1} = 1/sqrt(NetParams.input_nodes) * randn(NetParams.hidden_nodes(1), NetParams.input_nodes);
-     bs{1} = zeros(NetParams.hidden_nodes(1), 1);
-     for i=2:length(NetParams.hidden_nodes)
+    Ws{1} = 1/sqrt(NetParams.input_nodes) * randn(NetParams.hidden_nodes(1), NetParams.input_nodes);
+    bs{1} = zeros(NetParams.hidden_nodes(1), 1);
+    for i=2:length(NetParams.hidden_nodes)
         Ws{i} = 1/sqrt(NetParams.hidden_nodes(i-1)) * randn(NetParams.hidden_nodes(i), NetParams.hidden_nodes(i-1));
         bs{i} = zeros(NetParams.hidden_nodes(i),1);
-     end
-     Ws{length(NetParams.hidden_nodes)+1} = 1/sqrt(NetParams.hidden_nodes(end)) * randn(NetParams.output_nodes, NetParams.hidden_nodes(end));
-     bs{length(NetParams.hidden_nodes)+1} = zeros(NetParams.output_nodes, 1);
+    end
+    
+    Ws{length(NetParams.hidden_nodes)+1} = 1/sqrt(NetParams.hidden_nodes(end)) * randn(NetParams.output_nodes, NetParams.hidden_nodes(end));
+    bs{length(NetParams.hidden_nodes)+1} = zeros(NetParams.output_nodes, 1);
 end
 
-function [X_train, Y_train, y_train, X_val, Y_val, y_val, X_test, Y_test, y_test] = LoadData()
+function [X_train, Y_train, y_train, X_val, Y_val, y_val, X_test, Y_test, y_test] = LoadData(NetParams)
     % Load data
-    [X1, Y1, y1] = LoadBatch("data_batch_1.mat");
-    [X2, Y2, y2] = LoadBatch("data_batch_3.mat");
-    [X3, Y3, y3] = LoadBatch("data_batch_4.mat");
-    [X4, Y4, y4] = LoadBatch("data_batch_5.mat");
-    %[X_train, Y_train, y_train] = LoadBatch("data_batch_1.mat");
-    [X_val, Y_val, y_val] = LoadBatch("data_batch_2.mat");
-    [X_test, Y_test, y_test] = LoadBatch("test_batch.mat");
-
-    X_train = [X1, X2, X3, X4, X_val(:, 1:end-5000)];
-    Y_train = [Y1, Y2, Y3, Y4, Y_val(:, 1:end-5000)];
-    y_train = [y1; y2; y3; y4; y_val(1:end-5000)];
-
-    X_val = X_val(:, end-4999:end);
-    Y_val = Y_val(:, end-4999:end);
-    y_val = y_val(end-4999:end);
+    if (NetParams.all_training_data)
+        [X1, Y1, y1] = LoadBatch("data_batch_1.mat");
+        [X2, Y2, y2] = LoadBatch("data_batch_3.mat");
+        [X3, Y3, y3] = LoadBatch("data_batch_4.mat");
+        [X4, Y4, y4] = LoadBatch("data_batch_5.mat");
+        [X_val, Y_val, y_val] = LoadBatch("data_batch_2.mat");
+        [X_test, Y_test, y_test] = LoadBatch("test_batch.mat");
+    
+        X_train = [X1, X2, X3, X4, X_val(:, 1:end-5000)];
+        Y_train = [Y1, Y2, Y3, Y4, Y_val(:, 1:end-5000)];
+        y_train = [y1; y2; y3; y4; y_val(1:end-5000)];
+    
+        X_val = X_val(:, end-4999:end);
+        Y_val = Y_val(:, end-4999:end);
+        y_val = y_val(end-4999:end);
+    else
+        [X_train, Y_train, y_train] = LoadBatch("data_batch_1.mat");
+        [X_val, Y_val, y_val] = LoadBatch("data_batch_2.mat");
+        [X_test, Y_test, y_test] = LoadBatch("test_batch.mat");
+    end
 
     % Preprocess data
     mean_X = mean(X_train, 2);  % d x 1
@@ -140,7 +143,7 @@ function PlotResults(NetParams, costs_train, costs_val, loss_train, loss_val, ac
     nexttile(T);
     plot(time, loss_train, time, loss_val);
     legend("Training loss", "Validation loss");
-    %ylim([min(loss_train) * 0.9,max(loss_train) * 1.1]);
+    ylim([min(loss_train) * 0.9,max(loss_train) * 1.1]);
     grid();
     xlabel("Update step")
     ylabel("Loss")
@@ -150,7 +153,7 @@ function PlotResults(NetParams, costs_train, costs_val, loss_train, loss_val, ac
     nexttile(T);
     plot(time, costs_train, time, costs_val);
     legend("Training cost", "Validation cost");
-    %ylim([min(costs_train) * 0.9,max(costs_train) * 1.1]);
+    ylim([min(costs_train) * 0.9,max(costs_train) * 1.1]);
     grid();
     xlabel("Update step")
     ylabel("Cost")
@@ -160,6 +163,7 @@ function PlotResults(NetParams, costs_train, costs_val, loss_train, loss_val, ac
     nexttile(T);
     plot(time, acc_train, time, acc_val);
     legend("Training accuracy", "Validation accuracy");
+    ylim([min(acc_train) * 0.9,max(acc_train) * 1.1]);
     grid();
     xlabel("Update step")
     ylabel("Accuracy")
@@ -266,11 +270,6 @@ function [grad_Ws, grad_bs] = ComputeGradients(Xs, X, Y, P, Ws, bs, lambda)
 end
 
 function [Wstars, bstars, costs_train, costs_val, loss_train, loss_val, acc_train, acc_val, etas, time] = MiniBatchGD(X_train, Y_train, y_train, X_val, y_val, NetParams)
-    % X = d x n
-    % W = K x d
-    % b = K x 1
-    % lambda = scalar
-
     costs_train = [];
     costs_val = [];
     loss_train = [];
