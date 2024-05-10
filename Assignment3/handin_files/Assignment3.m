@@ -1,5 +1,4 @@
 function Assignment3()
-    rng(400)
     NetParams = struct();
     NetParams.disable_logging = false;
     NetParams.all_training_data = true;
@@ -432,4 +431,151 @@ function eta = CyclicScheduler(t, NetParams)
     else
         eta = NetParams.eta_max - (t-NetParams.eta_step) / NetParams.eta_step * (NetParams.eta_max - NetParams.eta_min);
     end
+end
+
+function X = ShiftBatch(X_batch, p)
+    X = X_batch;
+    for i=1:size(X_batch,2)
+        if (rand() > p)
+            continue;
+        end
+        tx = round(rand() * 10);
+        ty = round(rand() * 10);
+        aa = 0:1:31;
+        vv = repmat(32*aa, 32-tx, 1);
+        bb1 = tx+1:1:32;
+        bb2 = 1:32-tx;
+
+        ind_fill = vv(:) + repmat(bb1', 32, 1);
+        ind_xx = vv(:) + repmat(bb2', 32, 1);
+
+        ii = find(ind_fill >= ty*32+1);
+        ind_fill = ind_fill(ii(1):end);
+
+        ii = find(ind_xx <= 1024-ty*32);
+        ind_xx = ind_xx(1:ii(end));
+        inds_fill = [ind_fill; 1024+ind_fill; 2048+ind_fill];
+        inds_xx = [ind_xx; 1024+ind_xx; 2048+ind_xx];
+
+        X(inds_fill,i) = X_batch(inds_xx,i);
+    end
+end
+
+function X = MirrorBatch(X_batch, p)
+    X = X_batch;
+    for i=1:size(X_batch,2)
+        if (rand() > p)
+            continue;
+        end
+        aa = 0:1:31;
+        bb = 32:-1:1;
+        vv = repmat(32*aa, 32, 1);
+        ind_flip = vv(:) + repmat(bb', 32, 1);
+        inds_flip = [ind_flip; 1024+ind_flip; 2048+ind_flip];
+
+        X(:,i) = X_batch(inds_flip, i);
+    end
+end
+
+function [X_train, Y_train, y_train, X_val, Y_val, y_val, X_test, Y_test, y_test] = LoadData(NetParams)
+    % Load data
+    if (NetParams.all_training_data)
+        [X1, Y1, y1] = LoadBatch("data_batch_1.mat");
+        [X2, Y2, y2] = LoadBatch("data_batch_3.mat");
+        [X3, Y3, y3] = LoadBatch("data_batch_4.mat");
+        [X4, Y4, y4] = LoadBatch("data_batch_5.mat");
+        [X_val, Y_val, y_val] = LoadBatch("data_batch_2.mat");
+        [X_test, Y_test, y_test] = LoadBatch("test_batch.mat");
+    
+        X_train = [X1, X2, X3, X4, X_val(:, 1:end-5000)];
+        Y_train = [Y1, Y2, Y3, Y4, Y_val(:, 1:end-5000)];
+        y_train = [y1; y2; y3; y4; y_val(1:end-5000)];
+    
+        X_val = X_val(:, end-4999:end);
+        Y_val = Y_val(:, end-4999:end);
+        y_val = y_val(end-4999:end);
+    else
+        [X_train, Y_train, y_train] = LoadBatch("data_batch_1.mat");
+        [X_val, Y_val, y_val] = LoadBatch("data_batch_2.mat");
+        [X_test, Y_test, y_test] = LoadBatch("test_batch.mat");
+    end
+
+    % Preprocess data
+    mean_X = mean(X_train, 2);  % d x 1
+    std_X = std(X_train, 0, 2); % d x 1
+
+    X_train = NormalizeData(X_train, mean_X, std_X);
+    X_val = NormalizeData(X_val, mean_X, std_X);
+    X_test = NormalizeData(X_test, mean_X, std_X);
+end
+
+function [X, Y, y] = LoadBatch(filename)
+    % X contains the image pixel data of size d x n of type double
+    % n is the number of images (10'000) and d is the dimensionality of each image (3072 = 32 x 32 x 2)
+
+    % Y is K x n where k is the number of labels (10) and is one-hot encoded of the image label for each image
+
+    % y is a vector of length n containing the label for each image (1-10)
+
+    A = load(filename);
+    X = im2double(A.data');
+    y = A.labels + 1;
+    Y = y == 1:max(y);
+    Y = Y';
+end
+
+function ret = NormalizeData(X, mean, std)
+    ret = X - repmat(mean, [1, size(X, 2)]);
+    ret = ret ./ repmat(std, [1, size(ret, 2)]);
+end
+
+function PlotResults(NetParams, costs_train, costs_val, loss_train, loss_val, acc_train, acc_val, etas, time, test_accuracy, val_accuracy)
+    if (length(costs_train) < 1)
+        disp("Logging must be on to plot!")
+        return;
+    end
+
+    % Plotting
+    scr_siz = get(0,'ScreenSize');
+    f = figure;
+    f.Position = floor([150 150 scr_siz(3)*0.8 scr_siz(4)*0.8]);
+    T = tiledlayout(f, 2, 2);
+    title(T, "Test accuracy: " + test_accuracy + ", Validation accuracy: " + val_accuracy);
+
+    % Plot train-validation losses
+    nexttile(T);
+    plot(time, loss_train, time, loss_val);
+    legend("Training loss", "Validation loss");
+    %ylim([min(loss_train) * 0.9,max(loss_train) * 1.1]);
+    grid();
+    xlabel("Update step")
+    ylabel("Loss")
+    fontsize(T,24,"points")
+
+    % Plot train-validation costs
+    nexttile(T);
+    plot(time, costs_train, time, costs_val);
+    legend("Training cost", "Validation cost");
+    %ylim([min(costs_train) * 0.9,max(costs_train) * 1.1]);
+    grid();
+    xlabel("Update step")
+    ylabel("Cost")
+    fontsize(T,24,"points")
+
+    % Plot train-validation accuracy
+    nexttile(T);
+    plot(time, acc_train, time, acc_val);
+    legend("Training accuracy", "Validation accuracy");
+    grid();
+    xlabel("Update step")
+    ylabel("Accuracy")
+    fontsize(T,24,"points")
+
+    % Plot learning rate
+    nexttile(T);
+    plot(time, etas);
+    grid();
+    xlabel("Update step")
+    ylabel("\eta")
+    fontsize(T,24,"points")
 end

@@ -1,9 +1,8 @@
-function Assignment3()
-    rng(400)
+function Assignment3_bonus()
     NetParams = struct();
     NetParams.disable_logging = false;
     NetParams.all_training_data = true;
-    NetParams.use_adam = false;
+    NetParams.use_adam = true;
     NetParams.use_gpu = false;
     NetParams.augment_batch = false;
     NetParams.use_dropout = false;
@@ -28,17 +27,17 @@ function Assignment3()
 
     NetParams.input_nodes = NetParams.d;
     NetParams.output_nodes = NetParams.k;
-    NetParams.hidden_nodes = [50, 50];
+    NetParams.hidden_nodes = [50, 50, 50, 50, 50, 50];
     NetParams.dropout = 1.0;
 
     NetParams.n_batch = 100;
     NetParams.n_epochs = 100;
-    NetParams.lambda = 0.005; %0.0045418; %optiaml
+    NetParams.lambda = 0.003; %0.0045418; %optiaml
 
-    NetParams.eta_min = 1e-5;
-    NetParams.eta_max = 1e-1;
+    NetParams.eta_min = 5e-5; %0.00002;
+    NetParams.eta_max = 1e-3; %0.0008;
     NetParams.eta_step = 5 * 45000 / NetParams.n_batch; %2 * floor(NetParams.n / NetParams.n_batch);
-    NetParams.eta = 0.0002;
+    NetParams.eta = 0.002;
 
     % Adam
     NetParams.beta_1 = 0.9;
@@ -331,7 +330,7 @@ function [NetParams, costs_train, costs_val, loss_train, loss_val, acc_train, ac
 
             if (NetParams.use_bn)
                 adamGamma{k} = AdamOptimizer(NetParams.beta_1, NetParams.beta_2, NetParams.epsilon, size(NetParams.bn_gamma{k},1), size(NetParams.bn_gamma{k},2));
-                adamBeta{k} = AdamOptimizer(NetParams.beta_1, NetParams.beta_2, NetParams.epsilon, size(NetParams.bn_alpha{k},1), size(NetParams.bn_alpha{k},2));
+                adamBeta{k} = AdamOptimizer(NetParams.beta_1, NetParams.beta_2, NetParams.epsilon, size(NetParams.bn_beta{k},1), size(NetParams.bn_beta{k},2));
             end
         end
     end
@@ -340,6 +339,7 @@ function [NetParams, costs_train, costs_val, loss_train, loss_val, acc_train, ac
     m = n/NetParams.n_batch;
     t = 0;
     idx = 1;
+    eta = NetParams.eta;
     for i=1:NetParams.n_epochs       
         perm = randperm(n);
         for j=1:m
@@ -353,7 +353,8 @@ function [NetParams, costs_train, costs_val, loss_train, loss_val, acc_train, ac
             Ybatch = Y_train(:, inds);
             
             if (NetParams.use_adam)
-                eta = NetParams.eta;
+                eta = LinearDecay(t, NetParams);
+                %eta = StepDecay(t, eta);
             else
                 eta = CyclicScheduler(t, NetParams);
             end
@@ -431,5 +432,15 @@ function eta = CyclicScheduler(t, NetParams)
         eta = NetParams.eta_min + t / NetParams.eta_step * (NetParams.eta_max - NetParams.eta_min);
     else
         eta = NetParams.eta_max - (t-NetParams.eta_step) / NetParams.eta_step * (NetParams.eta_max - NetParams.eta_min);
+    end
+end
+
+function eta = LinearDecay(t, NetParams)
+    eta = NetParams.eta_max - (NetParams.eta_max - NetParams.eta_min) * t / NetParams.max_train_steps;
+end
+
+function eta = StepDecay(t, eta)
+    if (mod(t,2500) == 0)
+        eta = eta * 0.95;
     end
 end
