@@ -7,9 +7,8 @@ function [RNN, losses] = Train(RNN, NetParams, data, ind_to_char, char_to_ind)
         adagrad.(f{1}) = zeros(size(RNN.(f{1})));
     end
 
+    smooth_loss = -inf;
     for epoch = 1:NetParams.epochs
-        smooth_loss = -inf;
-
         h_prev = zeros(NetParams.m, 1);
         e = 1;
 
@@ -35,12 +34,15 @@ function [RNN, losses] = Train(RNN, NetParams, data, ind_to_char, char_to_ind)
 
             losses(iter+1) = smooth_loss;
 
-            if mod(iter, 100) == 0
+            if mod(iter, 1000) == 0
                 disp("Loss " + smooth_loss + "; Step: " + iter + "; Epoch: " + epoch)
             end
 
-            if mod(iter, 500) == 0
-                disp(SynthesizeText(RNN, h_prev, X_chars(:,1), 200, ind_to_char))
+            if mod(iter, 10000) == 0
+                txt = SynthesizeText(RNN, h_prev, X_chars(:,1), 200, ind_to_char);
+                txt = string(iter) + ": " + txt;
+                disp(txt)
+                writelines(txt, "run_logs.txt", WriteMode="append");
             end
 
             h_prev = hs(:,end);
